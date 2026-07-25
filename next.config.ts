@@ -1,7 +1,31 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // PWA assets and offline shell live under /public
+  headers: async () => [
+    {
+      source: "/sw.js",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+        { key: "Service-Worker-Allowed", value: "/" },
+      ],
+    },
+    {
+      source: "/manifest.webmanifest",
+      headers: [
+        {
+          key: "Content-Type",
+          value: "application/manifest+json",
+        },
+      ],
+    },
+  ],
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "images.unsplash.com" },
+      { protocol: "https", hostname: "*.supabase.co" },
+    ],
+  },
 };
 
 export default nextConfig;
