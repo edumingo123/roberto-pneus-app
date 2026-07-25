@@ -3,11 +3,16 @@
 
 generator client {
   provider = "prisma-client-js"
+  // Windows: evita lock estranho com engines em alguns AV/IDEs
+  engineType = "library"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Pooler (porta 6543 + ?pgbouncer=true) em serverless/Vercel
+  url       = env("DATABASE_URL")
+  // Conexão direta (porta 5432) — usada por migrate/introspect no Supabase
+  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────────

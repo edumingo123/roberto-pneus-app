@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
+    "db:reset-client": "node -e \"const fs=require('fs');const p='node_modules/.prisma';if(fs.existsSync(p))fs.rmSync(p,{recursive:true,force:true});console.log('cleaned .prisma')\"",
     "icons": "node scripts/generate-pwa-icons.mjs",
     "postinstall": "prisma generate",
     "prepare:env": "node -e \"const fs=require('fs'); if(!fs.existsSync('.env.local')){fs.copyFileSync('.env.example','.env.local'); console.log('Created .env.local from .env.example');} else {console.log('.env.local already exists');}\""

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -20,10 +20,18 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 
+function safeInternalPath(path: string | null): string {
+  if (!path) return "/dashboard";
+  if (!path.startsWith("/") || path.startsWith("//")) return "/dashboard";
+  if (path.startsWith("/login")) return "/dashboard";
+  return path;
+}
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/dashboard";
+  const redirectTo = safeInternalPath(searchParams.get("redirect"));
+  const errorCode = searchParams.get("error");
   const [loading, setLoading] = useState(false);
 
   const {
@@ -35,12 +43,29 @@ export function LoginForm() {
     defaultValues: { email: "", password: "" },
   });
 
+  // Explain loop-breaking errors and ensure clean session
+  useEffect(() => {
+    if (errorCode === "no_profile") {
+      toast.error(
+        "Login no Auth ok, mas não há perfil de colaborador no banco. Peça ao admin para cadastrar seu e-mail em Usuários ou rode o seed."
+      );
+      // Clear leftover Supabase session to avoid bounce
+      if (!isDemoModeClient()) {
+        void createClient()
+          .auth.signOut()
+          .catch(() => undefined);
+      }
+    } else if (errorCode === "auth") {
+      toast.error("Falha na autenticação. Tente entrar novamente.");
+    }
+  }, [errorCode]);
+
   async function onSubmit(values: LoginValues) {
     setLoading(true);
     try {
       if (isDemoModeClient()) {
         toast.success("Modo demo — entrando como Admin");
-        router.push(redirectTo);
+        router.replace(redirectTo);
         router.refresh();
         return;
       }
@@ -57,7 +82,8 @@ export function LoginForm() {
       }
 
       toast.success("Bem-vindo!");
-      router.push(redirectTo);
+      // replace avoids back-button bouncing into login again
+      router.replace(redirectTo);
       router.refresh();
     } catch {
       toast.error(
@@ -70,12 +96,21 @@ export function LoginForm() {
 
   function enterDemo() {
     toast.success("Entrando em modo demonstração");
-    router.push("/dashboard");
+    // Client-only demo still needs DEMO_MODE=true no servidor
+    router.replace("/dashboard");
     router.refresh();
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {errorCode === "no_profile" ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          Seu usuário existe no Supabase Auth, mas não está vinculado a um
+          colaborador no banco (tabela <code>users</code>). Cadastre o mesmo
+          e-mail em Usuários ou atualize <code>authUserId</code> após o seed.
+        </div>
+      ) : null}
+
       <div className="space-y-2">
         <Label htmlFor="email">E-mail</Label>
         <Input

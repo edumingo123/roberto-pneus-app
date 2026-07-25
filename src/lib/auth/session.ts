@@ -7,9 +7,50 @@ export interface AppSession {
   tenant: TenantInfo;
 }
 
+function mapSession(
+  dbUser: {
+    id: string;
+    authUserId: string;
+    email: string;
+    name: string;
+    role: string;
+    tenantId: string;
+    avatarUrl: string | null;
+    phone: string | null;
+    tenant: {
+      id: string;
+      name: string;
+      slug: string;
+      logoUrl: string | null;
+    };
+  }
+): AppSession {
+  return {
+    user: {
+      id: dbUser.id,
+      authUserId: dbUser.authUserId,
+      email: dbUser.email,
+      name: dbUser.name,
+      role: dbUser.role as UserRole,
+      tenantId: dbUser.tenantId,
+      avatarUrl: dbUser.avatarUrl,
+      phone: dbUser.phone,
+    },
+    tenant: {
+      id: dbUser.tenant.id,
+      name: dbUser.tenant.name,
+      slug: dbUser.tenant.slug,
+      logoUrl: dbUser.tenant.logoUrl,
+    },
+  };
+}
+
 /**
  * Loads the authenticated staff user + tenant from Supabase Auth + Prisma.
  * Returns null when unauthenticated or profile not found.
+ *
+ * Auto-link: if Auth user exists but authUserId is not linked yet, try match by email
+ * (common after seed with pending authUserId).
  */
 export async function getSession(): Promise<AppSession | null> {
   try {
@@ -20,7 +61,7 @@ export async function getSession(): Promise<AppSession | null> {
 
     if (!authUser) return null;
 
-    const dbUser = await prisma.user.findUnique({
+    let dbUser = await prisma.user.findUnique({
       where: { authUserId: authUser.id },
       include: {
         tenant: {
@@ -35,29 +76,59 @@ export async function getSession(): Promise<AppSession | null> {
       },
     });
 
+    // Link existing staff row by email (seed / first login)
+    if (!dbUser && authUser.email) {
+      const byEmail = await prisma.user.findFirst({
+        where: {
+          email: { equals: authUser.email, mode: "insensitive" },
+          isActive: true,
+          tenant: { isActive: true },
+        },
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              logoUrl: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+
+      if (byEmail) {
+        dbUser = await prisma.user.update({
+          where: { id: byEmail.id },
+          data: { authUserId: authUser.id, lastLoginAt: new Date() },
+          include: {
+            tenant: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                logoUrl: true,
+                isActive: true,
+              },
+            },
+          },
+        });
+      }
+    }
+
     if (!dbUser || !dbUser.isActive || !dbUser.tenant.isActive) {
       return null;
     }
 
-    const sessionUser: SessionUser = {
-      id: dbUser.id,
-      authUserId: dbUser.authUserId,
-      email: dbUser.email,
-      name: dbUser.name,
-      role: dbUser.role as UserRole,
-      tenantId: dbUser.tenantId,
-      avatarUrl: dbUser.avatarUrl,
-      phone: dbUser.phone,
-    };
+    // Touch last login (best-effort)
+    void prisma.user
+      .update({
+        where: { id: dbUser.id },
+        data: { lastLoginAt: new Date() },
+      })
+      .catch(() => undefined);
 
-    const tenant: TenantInfo = {
-      id: dbUser.tenant.id,
-      name: dbUser.tenant.name,
-      slug: dbUser.tenant.slug,
-      logoUrl: dbUser.tenant.logoUrl,
-    };
-
-    return { user: sessionUser, tenant };
+    return mapSession(dbUser);
   } catch {
     return null;
   }
@@ -65,7 +136,6 @@ export async function getSession(): Promise<AppSession | null> {
 
 /**
  * Demo session for local development without Supabase configured.
- * Enabled only when DEMO_MODE=true.
  */
 export function getDemoSession(): AppSession {
   return {
@@ -89,7 +159,10 @@ export function getDemoSession(): AppSession {
 }
 
 export function isDemoMode(): boolean {
-  return process.env.DEMO_MODE === "true";
+  return (
+    process.env.DEMO_MODE === "true" ||
+    process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+  );
 }
 
 export async function requireSession(): Promise<AppSession> {
